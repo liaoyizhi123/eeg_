@@ -5,6 +5,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
 
+from gen_epoch_windows import gen_epoch_window
+
 
 def compute_attention(raw_data, new_frequency_):
     """
@@ -26,11 +28,9 @@ def compute_attention(raw_data, new_frequency_):
     res = []
     att = []
     for c in range(channels):
-        raw_data_resampled = scipy.signal.resample(raw_data[c],
-                                                   int(data_len * resampling_factor)) if resampling_factor != 1 else \
-        raw_data[c]
+        raw_data_resampled = scipy.signal.resample(raw_data[c], int(data_len * resampling_factor)) if resampling_factor != 1 else raw_data[c]
         # resampled_data = resampled_data - np.mean(resampled_data)  # remove DC offset
-        for feature_name in spectral_features_list:
+        for feature_name in spectral_features_list:  # ['spectral_power']
             # compute sum of spectral power with respect to frequency bands
             # delta(0.5-4), theta(4-7), alpha(7-13), beta(13-30)
             _ = spectral_features(raw_data_resampled, new_frequency, feature_name)
@@ -46,23 +46,21 @@ def compute_attention(raw_data, new_frequency_):
     )
 
 
-def spectral_features(x, Fs, feature_name='spectral_power', params_st=[]):  # Fs = 1000
+def spectral_features(x, Fs, feature_name='spectral_power', params_st=[]):  # Fs = 1000, feature_name='spectral_power'
     if len(params_st) == 0:
         if 'spectral' in feature_name:
-            params_st = SpectralParameters()
-
+            # params_st = SpectralParameters(method = 'periodogram')
+            params_st = SpectralParameters(method='welch_periodogram')
     freq_bands = params_st.freq_bands
-    total_freq_bands = params_st.total_freq_bands
 
     if (len(x) < (params_st.L_window * Fs)):
         print('SPECTRAL features: signal length < window length; set shorter L_window')
         featx = np.nan
         return featx
-    if feature_name == 'spectral_power' or feature_name == 'spectral_relative_power':
+    if feature_name == 'spectral_power':
         # ---------------------------------------------------------------------
         # use periodogram to estimate spectral power, not walch
         # ---------------------------------------------------------------------
-        params_st.method = 'periodogram'
         pxx, itotal_bandpass, f_scale, data_num_resampled, fp = gen_spectrum(x, Fs, params_st, 1)
         pxx = pxx * Fs  # shape(230401,)
         point_num_dc2nyquist = pxx.shape[0]  # 230401
@@ -85,16 +83,85 @@ def spectral_features(x, Fs, feature_name='spectral_power', params_st=[]):  # Fs
         return spec_pow[0]
 
 
+
+def gen_STFT(x,L_window,window_type,overlap,Fs, STFT_OR_SPEC=0):
+    """
+    %-------------------------------------------------------------------------------
+    % gen_STFT: Short-time Fourier transform (or spectrogram)
+    %
+    % Syntax: [S_stft,Nfreq,f_scale,win_epoch]=gen_STFT(x,L_window,window_type,overlap,Fs)
+    %
+    % Inputs:
+    %     x            - input signal
+    %     L_window     - window length
+    %     window_type  - window type
+    %     overlap      - percentage overlap
+    %     Fs           - sampling frequency (Hz)
+    %     STFT_OR_SPEC - return short-time Fourier transform (STFT) or spectrogram
+    %                    (0=spectrogram [default] and 1=STFT)
+    %
+    % Outputs:
+    %     S_stft     - spectrogram
+    %     Nfreq      - length of FFT
+    %     f_scale    - frequency scaling factor
+    %     win_epoch  - window
+    %
+    % Example:
+    %     Fs=64;
+    %     data_st=gen_test_EEGdata(32,Fs,1);
+    %     x=data_st.eeg_data(1,:);
+    %
+    %     L_window=2;
+    %     window_type='hamm';
+    %     overlap=80;
+    %
+    %     S_stft=gen_STFT(x,L_window,window_type,overlap,Fs);
+    %
+    %     figure(1); clf; hold all;
+    %     imagesc(S_stft); axis('tight');
+    %
+    %-------------------------------------------------------------------------------
+    """
+    L_hop,L_epoch,win_epoch = gen_epoch_window(overlap, L_window, window_type, Fs, 1)
+    N = len(x)
+    N_epochs = int(np.ceil((N-(L_epoch-L_hop))/L_hop))
+
+    if N_epochs < 1:
+        N_epochs = 1
+    nw = list(range(0,L_epoch))
+    Nfreq = L_epoch
+
+    # ---------------------------------------------------------------------
+    #  generate short-time FT on all data:
+    # ---------------------------------------------------------------------
+    K_stft = np.zeros([N_epochs,L_epoch])
+    for k in range(N_epochs):
+        nf = np.mod(nw+k*L_hop,N)
+        nf = nf.astype(int)
+
+        K_stft[k,:] = x[nf] * win_epoch
+
+    f_scale = Nfreq/Fs
+
+    if STFT_OR_SPEC:
+        S_stft = np.fft.fft(K_stft, Nfreq, axis=1)
+    else:
+        S_stft = np.abs(np.fft.fft(K_stft, Nfreq, axis=1))**2
+
+    S_stft = S_stft[:, :Nfreq//2+1]
+
+    return S_stft, Nfreq, f_scale, win_epoch
+
+
 def gen_spectrum(x, Fs, params_st, SCALE_PSD=0):
     """
     变换成频谱
     """
-    spec_method = params_st.method
 
     # remove NaNs
     x[np.isnan(x)] = []
 
-    if spec_method.lower() == 'periodogram':
+    if params_st.method.lower() == 'periodogram':
         # ---------------------------------------------------------------------
         # Periodogram
         # frequencies, psd = scipy.signal.periodogram(data)
@@ -104,9 +171,9 @@ def gen_spectrum(x, Fs, params_st, SCALE_PSD=0):
         # positive frequencies only:
         N = len(X)
         Nh = int(np.floor(N / 2))
-        data_num_resampled = N
-        X = X[:Nh + 1]  # include DC and Nyquist frequencies
-        pxx = X / (Fs * N)  # normalize by Fs and N
+        Nfreq = N
+        X = X[:Nh + 1]  # including DC and Nyquist frequencies
+        pxx = X / (Fs * N)  # normalize by Fs and N, where Fs is the new frequency and N is the number of new data points
 
         # ##
         # X_ = (np.abs(np.fft.fft(x)) ** 2)[Nh + 1 :]
@@ -125,17 +192,32 @@ def gen_spectrum(x, Fs, params_st, SCALE_PSD=0):
         # plt.grid(True)
         # plt.show()
 
+    elif params_st.method.lower() == 'welch_periodogram':
+        # ---------------------------------------------------------------------
+        # Welch periodogram
+        # frequencies, psd = scipy.signal.welch(data)
+        # ---------------------------------------------------------------------
+        S_stft, Nfreq, f_scale, win_epoch = gen_STFT(x, params_st.L_window, params_st.window_type, params_st.overlap, Fs)
+
+        # average over time:
+        pxx = np.nanmean(S_stft, 0)
+
+        N = len(pxx)
+        # normalise (so similar to pwelch):
+        E_win= np.sum(np.abs(win_epoch)**2) / Nfreq
+        pxx=(pxx/(Nfreq*E_win*Fs))
+
     else:
-        print('unknown spectral method ''%s''; check spelling\n', spec_method)
+        print(f'unknown spectral method "{params_st.method}"; check spelling\n')
         pxx = np.nan
         itotal_bandpass = np.nan
         f_scale = np.nan
         fp = np.nan
 
-    # if need to scale (when calculating total power)
+    # in order to conserve the total power of both positive and negative frequencies
     if SCALE_PSD:
         pscale = np.ones([1, len(pxx)]) + 1
-        if data_num_resampled % 2:
+        if Nfreq % 2:
             pscale[0, 0] = 1
         else:
             pscale[0, 0], pscale[0, -1] = 1, 1
@@ -144,7 +226,7 @@ def gen_spectrum(x, Fs, params_st, SCALE_PSD=0):
         pxx = pxx[0]
 
     N = pxx.shape[0]
-    f_scale = data_num_resampled / Fs  # 460800/1000
+    f_scale = Nfreq / Fs  # 460800/1000
 
     # for plotting only:
     fp = np.arange(N) / f_scale
@@ -163,28 +245,33 @@ def gen_spectrum(x, Fs, params_st, SCALE_PSD=0):
     else:
         itotal_bandpass = np.nan
 
-    return pxx, itotal_bandpass, f_scale, data_num_resampled, fp
+    return pxx, itotal_bandpass, f_scale, Nfreq, fp
 
 
 class SpectralParameters:
-    def __init__(self):
+    def __init__(self, method='PSD', L_window=2, window_type='hamm', overlap=50,
+                 freq_bands=np.array([[0.5, 4], [4, 7], [7, 13], [13, 30]]),
+                 total_freq_bands=None, SEF=0.95):
         # 初始化与频谱分析相关的参数
         # how to estimate the spectrum for 'spectral_flatness', 'spectral_entropy',
         # spectral_edge_frequency features:
         # 1) PSD: estimate power spectral density (e.g. Welch periodogram)
         # 2) robust-PSD: median (instead of mean) of spectrogram
         # 3) periodogram: magnitude of the discrete Fourier transform
-        self.method = 'PSD'
+
+        self.method = method
 
         # length of time - domain analysis window and overlap:
         # (applies to 'spectral_power', 'spectral_relative_power',
         # 'spectral_flatness', and 'spectral_diff' features)
-        self.L_window = 2  # in seconds
-        self.window_type = 'hamm'  # type of window
-        self.overlap = 50  # overlap in percentage
-        self.freq_bands = np.array([[0.5, 4], [4, 7], [7, 13], [13, 30]])
-        self.total_freq_bands = [self.freq_bands[0][0], self.freq_bands[-1][-1]]
-        self.SEF = 0.95  # spectral edge frequency
+        self.L_window = L_window  # in seconds
+        self.window_type = window_type  # type of window
+        self.overlap = overlap  # overlap in percentage
+        self.freq_bands = freq_bands
+        if total_freq_bands is None:
+            total_freq_bands = [0.5, 30]
+        self.total_freq_bands = total_freq_bands
+        self.SEF = SEF  # spectral edge frequency
 
 
 def normalize(value, min_old=0.0, max_old=2.0, min_new=0, max_new=100):
@@ -197,7 +284,7 @@ if __name__ == '__main__':
     data = scipy.io.loadmat('./data/chb1.mat')
 
     interictal_data = data['Interictal_data']  # 14x23x460800 double
-    preictal_data = data['Preictal_data']  # 5x23x460800 double
+    # preictal_data = data['Preictal_data']  # 5x23x460800 double
 
     # 23x460800 double
     data_ = interictal_data[0]
