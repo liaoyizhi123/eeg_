@@ -233,9 +233,11 @@ if __name__ == '__main__':
     interval = 4000
     for i in range(0, data_.shape[1], interval):
         start_time = time.time()
+
+        # AttentionAlgorithms.Ec or AttentionAlgorithms.XY_RATIO
         att_avg, att_max, att_min, interested_band = compute_attention(data_[:, i:min((i + interval), data_.shape[1])],
                                                                        64, AttentionAlgorithms.XY_RATIO)
-        # att_avg, att_max, att_min = compute_attention(data_[:, i:min((i + interval), data_.shape[1])])
+
         end_time = time.time()
         _.append(att_avg)
         score_norm = normalize(att_avg, -0.2, 0.7, 0, 100)
@@ -246,7 +248,7 @@ if __name__ == '__main__':
             # f'avg_normalized: {normalize(att_avg, 0.0, 1.0, 0, 100):6.3f}, '  # rescale for Ec
             
             f'avg_normalized attention score: {score_norm:6.3f}, '  # rescale for x y ratio
-            f'max: {att_max:6.3f}, min: {att_min:6.3f}, '
+            # f'max: {att_max:6.3f}, min: {att_min:6.3f}, '
             
             f'relaxation score: {100-score_norm:6.3f}, '
             
