@@ -1,6 +1,75 @@
 import numpy as np
 from scipy.signal.windows import tukey, gaussian
 
+
+def gen_STFT(x,L_window,window_type,overlap,Fs, STFT_OR_SPEC=0):
+    """
+    %-------------------------------------------------------------------------------
+    % gen_STFT: Short-time Fourier transform (or spectrogram)
+    %
+    % Syntax: [S_stft,Nfreq,f_scale,win_epoch]=gen_STFT(x,L_window,window_type,overlap,Fs)
+    %
+    % Inputs:
+    %     x            - input signal
+    %     L_window     - window length
+    %     window_type  - window type
+    %     overlap      - percentage overlap
+    %     Fs           - sampling frequency (Hz)
+    %     STFT_OR_SPEC - return short-time Fourier transform (STFT) or spectrogram
+    %                    (0=spectrogram [default] and 1=STFT)
+    %
+    % Outputs:
+    %     S_stft     - spectrogram
+    %     Nfreq      - length of FFT
+    %     f_scale    - frequency scaling factor
+    %     win_epoch  - window
+    %
+    % Example:
+    %     Fs=64;
+    %     data_st=gen_test_EEGdata(32,Fs,1);
+    %     x=data_st.eeg_data(1,:);
+    %
+    %     L_window=2;
+    %     window_type='hamm';
+    %     overlap=80;
+    %
+    %     S_stft=gen_STFT(x,L_window,window_type,overlap,Fs);
+    %
+    %     figure(1); clf; hold all;
+    %     imagesc(S_stft); axis('tight');
+    %
+    %-------------------------------------------------------------------------------
+    """
+    L_hop,L_epoch,win_epoch = gen_epoch_window(overlap, L_window, window_type, Fs, 1)
+    N = len(x)
+    N_epochs = int(np.ceil((N-(L_epoch-L_hop))/L_hop))
+
+    if N_epochs < 1:
+        N_epochs = 1
+    nw = list(range(0,L_epoch))
+    Nfreq = L_epoch
+
+    # ---------------------------------------------------------------------
+    #  generate short-time FT on all data:
+    # ---------------------------------------------------------------------
+    K_stft = np.zeros([N_epochs,L_epoch])
+    for k in range(N_epochs):
+        nf = np.mod(nw+k*L_hop,N)
+        nf = nf.astype(int)
+
+        K_stft[k,:] = x[nf] * win_epoch
+
+    f_scale = Nfreq/Fs
+
+    if STFT_OR_SPEC:
+        S_stft = np.fft.fft(K_stft, Nfreq, axis=1)
+    else:
+        S_stft = np.abs(np.fft.fft(K_stft, Nfreq, axis=1))**2  # K_stft(3,128)
+
+    S_stft = S_stft[:, :Nfreq//2+1]
+
+    return S_stft, Nfreq, f_scale, win_epoch
+
 """
     gen_epoch_window: calculate overlap size (in samples) and window length for
     overlap-and-add type analysis
