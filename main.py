@@ -4,6 +4,7 @@ import scipy
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from pathlib import Path
 
 from gen_epoch_windows import gen_STFT
 from AttentionAlgorithms import AttentionAlgorithms
@@ -221,8 +222,9 @@ def normalize(value, min_old=0.0, max_old=2.0, min_new=0, max_new=100):
 
 if __name__ == '__main__':
 
-
-    data = scipy.io.loadmat('./data/chb1.mat')
+    data_dir = Path('./data')
+    data_path = data_dir/'chb1.mat'
+    data = scipy.io.loadmat(str(data_path))
 
     interictal_data = data['Interictal_data']  # 14x23x460800 double
     # preictal_data = data['Preictal_data']  # 5x23x460800 double

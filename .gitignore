@@ -1,2 +1,9 @@
+.idea
+__pycache__
 /data/*
+
+
+
+
+
 !/data/readme.txt
