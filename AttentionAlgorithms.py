@@ -1,14 +1,30 @@
 
 
 class AttentionAlgorithms(object):
-    Ec = 0
-    XY_RATIO = 1
+    Ec = "Ec_from_Pope1995"
+    Proportion_of_Beta = "proportion_of_beta"
+    Beta_over_Alpha = "beta_over_alpha"
+
+    XY_RATIO = "XY_RATIO"
+
+    Delta = (0.5, 4)
+    Theta = (4, 7)
+    Alpha = (7, 13)
+    Beta = (13, 30)
 
     # delta(0.5-4), theta(4-7), alpha(7-13), beta(13-30)
     # 0             1           2           3
     @staticmethod
     def compute_ec(res):
         return res[3] / (res[2] + res[1])
+
+    @staticmethod
+    def compute_proportion_of_beta(res):
+        return res[3] / (res[2] + sum(res))
+
+    @staticmethod
+    def compute_beta_over_alpha(res):
+        return res[3] / res[2]
 
     @staticmethod
     def compute_xy_ratio(res):
