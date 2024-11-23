@@ -27,8 +27,8 @@ def compute_attention(raw_data_, original_sampling_rate, resampling_rate, interv
     channels = raw_data.shape[0]
     data_len = raw_data.shape[1]
     new_frequency = resampling_rate  # ##
-    original_frequency = data_len
-    resampling_factor = new_frequency*interval / original_frequency
+    original_frequency = 500
+    resampling_factor = (new_frequency*interval) / (original_frequency*interval)
 
     # spectral_features_list = ['spectral_power']
     spectral_features_list = ['spectral_power_by_scipy']
